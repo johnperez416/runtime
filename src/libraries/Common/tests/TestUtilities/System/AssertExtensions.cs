@@ -5,7 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-#if NET6_0_OR_GREATER
+#if NET
 using System.Runtime.Intrinsics;
 #endif
 using System.Threading;
@@ -27,7 +27,7 @@ namespace System
         public static void ThrowsOnAot<T>(Action action)
             where T : Exception
         {
-#if NETCOREAPP // Dynamic code is always supported on .NET Framework
+#if NET // Dynamic code is always supported on .NET Framework
             if (!RuntimeFeature.IsDynamicCodeSupported)
             {
                 Assert.Throws<T>(action);
@@ -400,6 +400,20 @@ namespace System
                 throw new XunitException(AddOptionalUserMessage($"Expected: {actual} to be greater than or equal to {greaterThanOrEqualTo}", userMessage));
         }
 
+        /// <summary>
+        /// Validate that a given enum value has the expected flag set.
+        /// </summary>
+        /// <typeparam name="T">The enum type.</typeparam>
+        /// <param name="expected">The flag which should be present in <paramref name="actual"/>.</param>
+        /// <param name="actual">The value which should contain the flag <paramref name="expected"/>.</param>
+        public static void HasFlag<T>(T expected, T actual, string userMessage = null) where T : Enum
+        {
+            if (!actual.HasFlag(expected))
+            {
+                throw new XunitException(AddOptionalUserMessage($"Expected: Value {actual} (of enum type {typeof(T).FullName}) to have the flag {expected} set.", userMessage));
+            }
+        }
+
         // NOTE: Consider using SequenceEqual below instead, as it will give more useful information about what
         // the actual differences are, especially for large arrays/spans.
         /// <summary>
@@ -487,6 +501,19 @@ namespace System
                 }
 
                 countInfo.Remain--;
+            }
+        }
+
+        /// <summary>
+        /// Validates that the actual span is not equal to the expected span.
+        /// </summary>
+        /// <param name="expected">The sequence that <paramref name="actual"/> should be not be equal to.</param>
+        /// <param name="actual">The actual sequence.</param>
+        public static void SequenceNotEqual<T>(ReadOnlySpan<T> expected, ReadOnlySpan<T> actual) where T : IEquatable<T>
+        {
+            if (expected.SequenceEqual(actual))
+            {
+                throw new XunitException($"Expected: Contents of expected to differ from actual but were the same.");
             }
         }
 
@@ -683,7 +710,7 @@ namespace System
             return (*(ulong*)(&value)) == 0x0000000000000000;
         }
 
-#if NET6_0_OR_GREATER
+#if NET
         static unsafe bool IsNegativeZero(Half value)
         {
             return (*(ushort*)(&value)) == 0x8000;
@@ -753,7 +780,7 @@ namespace System
             }
         }
 
-#if NET6_0_OR_GREATER
+#if NET
         static string ToStringPadded(Half value)
         {
             if (Half.IsNaN(value))
@@ -786,9 +813,11 @@ namespace System
         /// <summary>Verifies that two <see cref="double"/> values are equal, within the <paramref name="allowedVariance"/>.</summary>
         /// <param name="expected">The expected value</param>
         /// <param name="actual">The value to be compared against</param>
-        /// <param name="allowedVariance">The total variance allowed between the expected and actual results.</param>
+        /// <param name="variance">The total variance allowed between the expected and actual results.</param>
+        /// <param name="banner">The banner to show; if <c>null</c>, then the standard
+        /// banner of "Values differ" will be used</param>
         /// <exception cref="EqualException">Thrown when the values are not equal</exception>
-        public static void Equal(double expected, double actual, double variance)
+        public static void Equal(double expected, double actual, double variance, string? banner = null)
         {
             if (double.IsNaN(expected))
             {
@@ -797,11 +826,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (double.IsNaN(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (double.IsNegativeInfinity(expected))
@@ -811,11 +840,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (double.IsNegativeInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (double.IsPositiveInfinity(expected))
@@ -825,11 +854,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (double.IsPositiveInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (IsNegativeZero(expected))
@@ -841,7 +870,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -852,7 +881,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -869,7 +898,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -880,7 +909,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -892,7 +921,7 @@ namespace System
 
             if (delta > variance)
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
         }
 
@@ -900,8 +929,10 @@ namespace System
         /// <param name="expected">The expected value</param>
         /// <param name="actual">The value to be compared against</param>
         /// <param name="variance">The total variance allowed between the expected and actual results.</param>
+        /// <param name="banner">The banner to show; if <c>null</c>, then the standard
+        /// banner of "Values differ" will be used</param>
         /// <exception cref="EqualException">Thrown when the values are not equal</exception>
-        public static void Equal(float expected, float actual, float variance)
+        public static void Equal(float expected, float actual, float variance, string? banner = null)
         {
             if (float.IsNaN(expected))
             {
@@ -910,11 +941,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (float.IsNaN(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (float.IsNegativeInfinity(expected))
@@ -924,11 +955,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (float.IsNegativeInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (float.IsPositiveInfinity(expected))
@@ -938,11 +969,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (float.IsPositiveInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (IsNegativeZero(expected))
@@ -954,7 +985,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -965,7 +996,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -982,7 +1013,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -993,7 +1024,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -1005,17 +1036,19 @@ namespace System
 
             if (delta > variance)
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
         }
 
-#if NET6_0_OR_GREATER
+#if NET
         /// <summary>Verifies that two <see cref="Half"/> values are equal, within the <paramref name="variance"/>.</summary>
         /// <param name="expected">The expected value</param>
         /// <param name="actual">The value to be compared against</param>
         /// <param name="variance">The total variance allowed between the expected and actual results.</param>
+        /// <param name="banner">The banner to show; if <c>null</c>, then the standard
+        /// banner of "Values differ" will be used</param>
         /// <exception cref="EqualException">Thrown when the values are not equal</exception>
-        public static void Equal(Half expected, Half actual, Half variance)
+        public static void Equal(Half expected, Half actual, Half variance, string? banner = null)
         {
             if (Half.IsNaN(expected))
             {
@@ -1024,11 +1057,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (Half.IsNaN(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (Half.IsNegativeInfinity(expected))
@@ -1038,11 +1071,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (Half.IsNegativeInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (Half.IsPositiveInfinity(expected))
@@ -1052,11 +1085,11 @@ namespace System
                     return;
                 }
 
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
             else if (Half.IsPositiveInfinity(actual))
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
 
             if (IsNegativeZero(expected))
@@ -1068,7 +1101,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -1079,7 +1112,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -1096,7 +1129,7 @@ namespace System
 
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -1107,7 +1140,7 @@ namespace System
             {
                 if (IsPositiveZero(variance) || IsNegativeZero(variance))
                 {
-                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                    throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
                 }
 
                 // When the variance is not +-0.0, then we are handling a case where
@@ -1119,7 +1152,7 @@ namespace System
 
             if (delta > variance)
             {
-                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
+                throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual), banner);
             }
         }
 #endif
@@ -1169,7 +1202,7 @@ namespace System
             throw EqualException.ForMismatchedValues(ToStringPadded(expected), ToStringPadded(actual));
         }
 
-#if NET6_0_OR_GREATER
+#if NET
         /// <summary>Verifies that two <see cref="Half"/> values's binary representations are identical.</summary>
         /// <param name="expected">The expected value</param>
         /// <param name="actual">The value to be compared against</param>

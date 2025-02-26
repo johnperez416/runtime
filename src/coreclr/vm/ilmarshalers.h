@@ -365,7 +365,7 @@ protected:
 
         // Convert the loaded local containing a native address
         // into a non-GC type for the byref case.
-        pslILEmit->EmitCONV_I();
+        pslILEmit->EmitCONV_U();
     }
 
     void EmitLoadManagedValue(ILCodeStream* pslILEmit)
@@ -399,7 +399,7 @@ protected:
 
         // Convert the loaded value containing a native address
         // into a non-GC type for the byref case.
-        pslILEmit->EmitCONV_I();
+        pslILEmit->EmitCONV_U();
     }
 
     void EmitStoreManagedValue(ILCodeStream* pslILEmit)
@@ -1490,8 +1490,7 @@ public:
                                                     BOOL               fManagedToNative,
                                                     OverrideProcArgs*  pargs,
                                                     UINT*              pResID,
-                                                    UINT               argidx,
-                                                    UINT               nativeStackOffset)
+                                                    UINT               argidx)
     {
         LIMITED_METHOD_CONTRACT;
         return HANDLEASNORMAL;
@@ -1814,6 +1813,40 @@ public:
     }
 };
 
+class ILPointerMarshaler final : public ILCopyMarshalerBase
+{
+public:
+    enum
+    {
+        c_fInOnly               = TRUE,
+        c_nativeSize            = TARGET_POINTER_SIZE,
+    };
+protected:
+    LocalDesc GetManagedType() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        LocalDesc native(m_pargs->m_pMT);
+        native.MakePointer();
+        return native;
+    }
+
+    LocalDesc GetNativeType() override
+    {
+        LIMITED_METHOD_CONTRACT;
+        LocalDesc native(m_pargs->m_pMT);
+        native.MakePointer();
+        return native;
+    }
+
+    virtual void EmitReInitNative(ILCodeStream* pslILEmit) override
+    {
+        STANDARD_VM_CONTRACT;
+
+        pslILEmit->EmitLDC(0);
+        pslILEmit->EmitCONV_U();
+        EmitStoreNativeValue(pslILEmit);
+    }
+};
 
 class ILDelegateMarshaler : public ILMarshaler
 {
@@ -2173,8 +2206,7 @@ public:
                                                     BOOL               fManagedToNative,
                                                     OverrideProcArgs*  pargs,
                                                     UINT*              pResID,
-                                                    UINT               argidx,
-                                                    UINT               nativeStackOffset);
+                                                    UINT               argidx);
 
     static MarshalerOverrideStatus ReturnOverride(NDirectStubLinker* psl,
                                                   BOOL               fManagedToNative,
@@ -2214,8 +2246,7 @@ public:
                                                     BOOL               fManagedToNative,
                                                     OverrideProcArgs*  pargs,
                                                     UINT*              pResID,
-                                                    UINT               argidx,
-                                                    UINT               nativeStackOffset);
+                                                    UINT               argidx);
 
     static MarshalerOverrideStatus ReturnOverride(NDirectStubLinker *psl,
                                                   BOOL        fManagedToNative,
@@ -2258,8 +2289,7 @@ public:
                                                     BOOL               fManagedToNative,
                                                     OverrideProcArgs*  pargs,
                                                     UINT*              pResID,
-                                                    UINT               argidx,
-                                                    UINT               nativeStackOffset);
+                                                    UINT               argidx);
 
     static MarshalerOverrideStatus ReturnOverride(NDirectStubLinker *psl,
                                                   BOOL        fManagedToNative,
@@ -2503,7 +2533,7 @@ public:
     enum
     {
         c_fInOnly               = TRUE,
-        c_nativeSize            = sizeof(OLE_COLOR),
+        c_nativeSize            = sizeof(uint32_t),
     };
 
 protected:
@@ -2889,6 +2919,7 @@ protected:
     void EmitConvertContentsNativeToCLR(ILCodeStream* pslILEmit) override;
 };
 
+#if defined(FEATURE_IJW)
 class ILBlittableValueClassWithCopyCtorMarshaler : public ILMarshaler
 {
 public:
@@ -2917,11 +2948,11 @@ public:
                                             BOOL               fManagedToNative,
                                             OverrideProcArgs*  pargs,
                                             UINT*              pResID,
-                                            UINT               argidx,
-                                            UINT               nativeStackOffset);
+                                            UINT               argidx);
 
 
 };
+#endif // defined(TARGET_WINDOWS)
 
 class ILArgIteratorMarshaler : public ILMarshaler
 {

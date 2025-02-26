@@ -309,50 +309,36 @@ namespace System
         /// <param name="x">The number whose reciprocal is to be estimated.</param>
         /// <returns>An estimate of the reciprocal of <paramref name="x" />.</returns>
         /// <remarks>
-        ///    <para>On x86/x64 hardware this may use the <c>RCPSS</c> instruction which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
-        ///    <para>On ARM64 hardware this may use the <c>FRECPE</c> instruction which performs a single Newton-Raphson iteration.</para>
+        ///    <para>On x86/x64 hardware, this may use the <c>RCPSS</c> instruction, which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
+        ///    <para>On ARM64 hardware, this may use the <c>FRECPE</c> instruction, which performs a single Newton-Raphson iteration.</para>
         ///    <para>On hardware without specialized support, this may just return <c>1.0 / x</c>.</para>
         /// </remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Intrinsic]
         public static float ReciprocalEstimate(float x)
         {
-            if (Sse.IsSupported)
-            {
-                return Sse.ReciprocalScalar(Vector128.CreateScalarUnsafe(x)).ToScalar();
-            }
-            else if (AdvSimd.Arm64.IsSupported)
-            {
-                return AdvSimd.Arm64.ReciprocalEstimateScalar(Vector64.CreateScalarUnsafe(x)).ToScalar();
-            }
-            else
-            {
-                return 1.0f / x;
-            }
+#if MONO
+            return 1.0f / x;
+#else
+            return ReciprocalEstimate(x);
+#endif
         }
 
         /// <summary>Returns an estimate of the reciprocal square root of a specified number.</summary>
         /// <param name="x">The number whose reciprocal square root is to be estimated.</param>
         /// <returns>An estimate of the reciprocal square root <paramref name="x" />.</returns>
         /// <remarks>
-        ///    <para>On x86/x64 hardware this may use the <c>RSQRTSS</c> instruction which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
-        ///    <para>On ARM64 hardware this may use the <c>FRSQRTE</c> instruction which performs a single Newton-Raphson iteration.</para>
+        ///    <para>On x86/x64 hardware, this may use the <c>RSQRTSS</c> instruction, which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
+        ///    <para>On ARM64 hardware, this may use the <c>FRSQRTE</c> instruction, which performs a single Newton-Raphson iteration.</para>
         ///    <para>On hardware without specialized support, this may just return <c>1.0 / Sqrt(x)</c>.</para>
         /// </remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Intrinsic]
         public static float ReciprocalSqrtEstimate(float x)
         {
-            if (Sse.IsSupported)
-            {
-                return Sse.ReciprocalSqrtScalar(Vector128.CreateScalarUnsafe(x)).ToScalar();
-            }
-            else if (AdvSimd.Arm64.IsSupported)
-            {
-                return AdvSimd.Arm64.ReciprocalSquareRootEstimateScalar(Vector64.CreateScalarUnsafe(x)).ToScalar();
-            }
-            else
-            {
-                return 1.0f / Sqrt(x);
-            }
+#if MONO || TARGET_RISCV64 || TARGET_LOONGARCH64
+            return 1.0f / Sqrt(x);
+#else
+            return ReciprocalSqrtEstimate(x);
+#endif
         }
 
         [Intrinsic]
@@ -408,86 +394,50 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Round(float x, MidpointRounding mode)
         {
-            // Inline single-instruction modes
-            if (RuntimeHelpers.IsKnownConstant((int)mode))
+            switch (mode)
             {
-                if (mode == MidpointRounding.ToEven)
-                    return Round(x);
-
-                // For ARM/ARM64 we can lower it down to a single instruction FRINTA
-                // For other platforms we use a fast managed implementation
-                if (mode == MidpointRounding.AwayFromZero)
-                {
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
+                case MidpointRounding.AwayFromZero:
+                    // For ARM/ARM64 we can lower it down to a single instruction FRINTA
                     if (AdvSimd.IsSupported)
                         return AdvSimd.RoundAwayFromZeroScalar(Vector64.CreateScalarUnsafe(x)).ToScalar();
-                    // manually fold BitDecrement(0.5f)
+                    // For other platforms we use a fast managed implementation
+                    // manually fold BitDecrement(0.5)
                     return Truncate(x + CopySign(0.49999997f, x));
-                }
-            }
 
-            return Round(x, 0, mode);
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value with an even least significant digit
+                case MidpointRounding.ToEven:
+                    return Round(x);
+                // Directed rounding: Round to the nearest value, toward to zero
+                case MidpointRounding.ToZero:
+                    return Truncate(x);
+                // Directed Rounding: Round down to the next value, toward negative infinity
+                case MidpointRounding.ToNegativeInfinity:
+                    return Floor(x);
+                // Directed rounding: Round up to the next value, toward positive infinity
+                case MidpointRounding.ToPositiveInfinity:
+                    return Ceiling(x);
+
+                default:
+                    ThrowHelper.ThrowArgumentException_InvalidEnumValue(mode);
+                    return default;
+            }
         }
 
-        public static unsafe float Round(float x, int digits, MidpointRounding mode)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float Round(float x, int digits, MidpointRounding mode)
         {
-            if ((digits < 0) || (digits > maxRoundingDigits))
+            if ((uint)digits > maxRoundingDigits)
             {
-                throw new ArgumentOutOfRangeException(nameof(digits), SR.ArgumentOutOfRange_RoundingDigits_MathF);
-            }
-
-            if (mode < MidpointRounding.ToEven || mode > MidpointRounding.ToPositiveInfinity)
-            {
-                throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
+                ThrowHelper.ThrowArgumentOutOfRange_RoundingDigits_MathF(nameof(digits));
             }
 
             if (Abs(x) < singleRoundLimit)
             {
                 float power10 = RoundPower10Single[digits];
-
-                x *= power10;
-
-                switch (mode)
-                {
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value with an even least significant digit
-                    case MidpointRounding.ToEven:
-                    {
-                        x = Round(x);
-                        break;
-                    }
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
-                    case MidpointRounding.AwayFromZero:
-                    {
-                        // manually fold BitDecrement(0.5f)
-                        x = Truncate(x + CopySign(0.49999997f, x));
-                        break;
-                    }
-                    // Directed rounding: Round to the nearest value, toward to zero
-                    case MidpointRounding.ToZero:
-                    {
-                        x = Truncate(x);
-                        break;
-                    }
-                    // Directed Rounding: Round down to the next value, toward negative infinity
-                    case MidpointRounding.ToNegativeInfinity:
-                    {
-                        x = Floor(x);
-                        break;
-                    }
-                    // Directed rounding: Round up to the next value, toward positive infinity
-                    case MidpointRounding.ToPositiveInfinity:
-                    {
-                        x = Ceiling(x);
-                        break;
-                    }
-                    default:
-                    {
-                        throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
-                    }
-                }
-
-                x /= power10;
+                x = Round(x * power10, mode) / power10;
             }
 
             return x;

@@ -591,7 +591,7 @@ namespace Internal.Reflection.Execution
             NativeParser invokeMapParser = new NativeParser(invokeMapReader, 0);
             NativeHashtable invokeHashtable = new NativeHashtable(invokeMapParser);
 
-            LowLevelList<FunctionPointerOffsetPair> functionPointers = new LowLevelList<FunctionPointerOffsetPair>();
+            ArrayBuilder<FunctionPointerOffsetPair> functionPointers = default;
 
             var lookup = invokeHashtable.EnumerateAllEntries();
             NativeParser entryParser;
@@ -719,7 +719,7 @@ namespace Internal.Reflection.Execution
                 QTypeDefinition qTypeDefinition = GetMetadataForNamedType(declaringTypeHandleDefinition);
 
                 MethodHandle nativeFormatMethodHandle =
-                    (((int)HandleType.Method << 24) | (int)entryMethodHandleOrNameAndSigRaw).AsMethodHandle();
+                    (((int)HandleType.Method << 25) | (int)entryMethodHandleOrNameAndSigRaw).AsMethodHandle();
 
                 methodHandle = new QMethodDefinition(qTypeDefinition.NativeFormatReader, nativeFormatMethodHandle);
             }

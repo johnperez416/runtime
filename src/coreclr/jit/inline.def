@@ -106,6 +106,7 @@ INLINE_OBSERVATION(NUMBER_OF_ARGUMENTS,       int,    "number of arguments",    
 INLINE_OBSERVATION(NUMBER_OF_BASIC_BLOCKS,    int,    "number of basic blocks",               INFORMATION, CALLEE)
 INLINE_OBSERVATION(NUMBER_OF_LOCALS,          int,    "number of locals",                     INFORMATION, CALLEE)
 INLINE_OBSERVATION(RANDOM_ACCEPT,             bool,   "random accept",                        INFORMATION, CALLEE)
+INLINE_OBSERVATION(UNBOX_ARG,                 int,    "callee unboxes arg",                   INFORMATION, CALLEE)
 INLINE_OBSERVATION(UNSUPPORTED_OPCODE,        bool,   "unsupported opcode",                   INFORMATION, CALLEE)
 
 // ------ Caller Correctness -------
@@ -122,7 +123,6 @@ INLINE_OBSERVATION(HAS_NEWOBJ,                bool,   "has newobj",             
 // ------ Call Site Correctness -------
 
 INLINE_OBSERVATION(ARG_HAS_NULL_THIS,         bool,   "this pointer argument is null",        FATAL,       CALLSITE)
-INLINE_OBSERVATION(ARG_IS_MKREFANY,           bool,   "argument is mkrefany",                 FATAL,       CALLSITE)
 INLINE_OBSERVATION(ARG_NO_BASH_TO_INT,        bool,   "argument can't bash to int",           FATAL,       CALLSITE)
 INLINE_OBSERVATION(ARG_NO_BASH_TO_REF,        bool,   "argument can't bash to ref",           FATAL,       CALLSITE)
 INLINE_OBSERVATION(ARG_TYPES_INCOMPATIBLE,    bool,   "argument types incompatible",          FATAL,       CALLSITE)
@@ -195,6 +195,7 @@ INLINE_OBSERVATION(LOG_REPLAY_ACCEPT,         bool,   "accepted by log replay", 
 INLINE_OBSERVATION(PROFILE_FREQUENCY,         double, "frequency from profile data",          INFORMATION, CALLSITE)
 INLINE_OBSERVATION(RANDOM_ACCEPT,             bool,   "random accept",                        INFORMATION, CALLSITE)
 INLINE_OBSERVATION(WEIGHT,                    int,    "frequency from block weight",          INFORMATION, CALLSITE)
+INLINE_OBSERVATION(UNBOX_EXACT_ARG,           int,    "unbox of arg with exact class",        INFORMATION, CALLSITE)
 
 // ------ Final Sentinel -------
 

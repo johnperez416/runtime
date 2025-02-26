@@ -148,6 +148,10 @@ namespace System.Linq
 
                 return result;
             }
+
+            public override bool Contains(TSource value) =>
+                _first.Contains(value) ||
+                _second.Contains(value);
         }
 
         private sealed partial class ConcatNIterator<TSource> : ConcatIterator<TSource>
@@ -170,7 +174,7 @@ namespace System.Linq
                     // Enumerable.Count() handles ICollections in O(1) time, but check for them here anyway
                     // to avoid a method call because 1) they're common and 2) this code is run in a loop.
                     var collection = source as ICollection<TSource>;
-                    Debug.Assert(!_hasOnlyCollections || collection != null);
+                    Debug.Assert(!_hasOnlyCollections || collection is not null);
                     int sourceCount = collection?.Count ?? source.Count();
 
                     checked
@@ -178,7 +182,7 @@ namespace System.Linq
                         count += sourceCount;
                     }
                 }
-                while ((previousN = node.PreviousN) != null);
+                while ((previousN = node.PreviousN) is not null);
 
                 Debug.Assert(node._tail is Concat2Iterator<TSource>);
                 return checked(count + node._tail.GetCount(onlyIfCheap));
@@ -202,7 +206,7 @@ namespace System.Linq
                     // On the bright side, the bottleneck will usually be iterating, buffering, and copying
                     // each of the enumerables, so this shouldn't be a noticeable perf hit for most scenarios.
                     IEnumerable<TSource>? source = GetEnumerable(i);
-                    if (source == null)
+                    if (source is null)
                     {
                         break;
                     }
@@ -250,7 +254,7 @@ namespace System.Linq
                         source.CopyTo(array, arrayIndex);
                     }
                 }
-                while ((previousN = node.PreviousN) != null);
+                while ((previousN = node.PreviousN) is not null);
 
                 var previous2 = (Concat2Iterator<TSource>)node._tail;
                 var second = (ICollection<TSource>)previous2._second;
@@ -326,29 +330,44 @@ namespace System.Linq
 
             public override TSource? TryGetLast(out bool found)
             {
-                ConcatNIterator<TSource>? node = this;
+                ConcatNIterator<TSource>? node, previousN = this;
+                TSource? result;
                 do
                 {
-                    TSource? result = node._head.TryGetLast(out found);
+                    node = previousN;
+                    result = node._head.TryGetLast(out found);
                     if (found)
                     {
                         return result;
                     }
                 }
-                while ((node = node!.PreviousN) is not null);
+                while ((previousN = node.PreviousN) is not null);
 
-                found = false;
-                return default;
+                Debug.Assert(node._tail is Concat2Iterator<TSource>);
+                return node._tail.TryGetLast(out found);
+            }
+
+            public override bool Contains(TSource value)
+            {
+                ConcatNIterator<TSource>? node, previousN = this;
+                do
+                {
+                    node = previousN;
+                    if (node._head.Contains(value))
+                    {
+                        return true;
+                    }
+                }
+                while ((previousN = node.PreviousN) is not null);
+
+                Debug.Assert(node._tail is Concat2Iterator<TSource>);
+                return node._tail.Contains(value);
             }
         }
 
-        private abstract partial class ConcatIterator<TSource> : IPartition<TSource>
+        private abstract partial class ConcatIterator<TSource>
         {
-            public abstract int GetCount(bool onlyIfCheap);
-
-            public abstract TSource[] ToArray();
-
-            public List<TSource> ToList()
+            public override List<TSource> ToList()
             {
                 int count = GetCount(onlyIfCheap: true);
                 var list = count != -1 ? new List<TSource>(count) : new List<TSource>();
@@ -356,7 +375,7 @@ namespace System.Linq
                 for (int i = 0; ; i++)
                 {
                     IEnumerable<TSource>? source = GetEnumerable(i);
-                    if (source == null)
+                    if (source is null)
                     {
                         break;
                     }
@@ -366,17 +385,6 @@ namespace System.Linq
 
                 return list;
             }
-
-            public abstract TSource? TryGetElementAt(int index, out bool found);
-
-            public abstract TSource? TryGetFirst(out bool found);
-
-            public abstract TSource? TryGetLast(out bool found);
-
-            public IPartition<TSource>? Skip(int count) => new EnumerablePartition<TSource>(this, count, -1);
-
-            public IPartition<TSource>? Take(int count) => new EnumerablePartition<TSource>(this, 0, count - 1);
-
         }
     }
 }

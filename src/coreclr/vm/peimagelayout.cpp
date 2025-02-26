@@ -38,7 +38,7 @@ PEImageLayout* PEImageLayout::CreateFromHMODULE(HMODULE hModule, PEImage* pOwner
     CONTRACTL_END;
 
     PEImageLayout* pLoadLayout;
-    if (WszGetModuleHandle(NULL) == hModule)
+    if (GetModuleHandle(NULL) == hModule)
     {
         return new LoadedImageLayout(pOwner, hModule);
     }
@@ -416,7 +416,7 @@ void ConvertedImageLayout::FreeImageParts()
             CLRUnmapViewOfFile(PtrFromPart(imagePart));
         }
 
-        this->m_imageParts[i] = NULL;
+        this->m_imageParts[i] = 0;
     }
 }
 
@@ -616,16 +616,27 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
         PRECONDITION(CheckPointer(pOwner));
     }
     CONTRACTL_END;
-    m_pOwner=pOwner;
-
-    HANDLE hFile = pOwner->GetFileHandle();
-    INT64 offset = pOwner->GetOffset();
-    INT64 size = pOwner->GetSize();
+    m_pOwner = pOwner;
 
 #ifdef LOGGING
     SString ownerPath{ pOwner->GetPath() };
     LOG((LF_LOADER, LL_INFO100, "PEImage: Opening flat %s\n", ownerPath.GetUTF8()));
 #endif // LOGGING
+
+    INT64 dataSize;
+    void* data = pOwner->GetExternalData(&dataSize);
+    if (data != nullptr)
+    {
+        // Image was provided as flat data via external assembly probing.
+        // We do not manage the data - just initialize with it directly.
+        _ASSERTE(dataSize != 0);
+        Init(data, (COUNT_T)dataSize);
+        return;
+    }
+
+    HANDLE hFile = pOwner->GetFileHandle();
+    INT64 offset = pOwner->GetOffset();
+    INT64 size = pOwner->GetSize();
 
     // If a size is not specified, load the whole file
     if (size == 0)
@@ -652,7 +663,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
             mapAccess = PAGE_EXECUTE_READ;
         }
 #endif
-        m_FileMap.Assign(WszCreateFileMapping(hFile, NULL, mapAccess, 0, 0, NULL));
+        m_FileMap.Assign(CreateFileMapping(hFile, NULL, mapAccess, 0, 0, NULL));
         if (m_FileMap == NULL)
             ThrowLastError();
 
@@ -680,7 +691,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner)
             // We will create another anonymous memory-only mapping and uncompress file there.
             // The flat image will refer to the anonymous mapping instead and we will release the original mapping.
 
-            HandleHolder anonMap = WszCreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, uncompressedSize >> 32, (DWORD)uncompressedSize, NULL);
+            HandleHolder anonMap = CreateFileMapping(INVALID_HANDLE_VALUE, NULL, PAGE_READWRITE, uncompressedSize >> 32, (DWORD)uncompressedSize, NULL);
             if (anonMap == NULL)
                 ThrowLastError();
 
@@ -766,7 +777,7 @@ FlatImageLayout::FlatImageLayout(PEImage* pOwner, const BYTE* array, COUNT_T siz
 
 #endif // defined(TARGET_WINDOWS)
 
-        m_FileMap.Assign(WszCreateFileMapping(INVALID_HANDLE_VALUE, NULL, mapAccess, 0, size, NULL));
+        m_FileMap.Assign(CreateFileMapping(INVALID_HANDLE_VALUE, NULL, mapAccess, 0, size, NULL));
         if (m_FileMap == NULL)
             ThrowLastError();
 

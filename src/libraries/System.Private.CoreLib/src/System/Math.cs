@@ -151,9 +151,17 @@ namespace System
             throw new OverflowException(SR.Overflow_NegateTwosCompNum);
         }
 
-        internal static unsafe ulong BigMul(uint a, uint b)
+        /// <summary>Produces the full product of two unsigned 32-bit numbers.</summary>
+        /// <param name="a">The first number to multiply.</param>
+        /// <param name="b">The second number to multiply.</param>
+        /// <returns>The number containing the product of the specified numbers.</returns>
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static unsafe ulong BigMul(uint a, uint b)
         {
-#if TARGET_32BIT
+#if false // TARGET_32BIT
+            // This generates slower code currently than the simple multiplication
+            // https://github.com/dotnet/runtime/issues/11782
             if (Bmi2.IsSupported)
             {
                 uint low;
@@ -164,10 +172,39 @@ namespace System
             return ((ulong)a) * b;
         }
 
+        /// <summary>Produces the full product of two 32-bit numbers.</summary>
+        /// <param name="a">The first number to multiply.</param>
+        /// <param name="b">The second number to multiply.</param>
+        /// <returns>The number containing the product of the specified numbers.</returns>
         public static long BigMul(int a, int b)
         {
             return ((long)a) * b;
         }
+
+
+        /// <summary>
+        /// Perform multiplication between 64 and 32 bit numbers, returning lower 64 bits in <paramref name="low"/>
+        /// </summary>
+        /// <returns>hi bits of the result</returns>
+        /// <remarks>REMOVE once BigMul(ulong, ulong) is treated as intrinsics and optimizes 32 by 64 multiplications</remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static ulong BigMul(ulong a, uint b, out ulong low)
+        {
+#if TARGET_64BIT
+            return Math.BigMul((ulong)a, (ulong)b, out low);
+#else
+            ulong prodL = ((ulong)(uint)a) * b;
+            ulong prodH = (prodL >> 32) + (((ulong)(uint)(a >> 32)) * b);
+
+            low = ((prodH << 32) | (uint)prodL);
+            return (prodH >> 32);
+#endif
+        }
+
+        /// <inheritdoc cref="BigMul(ulong, uint, out ulong)"/>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static ulong BigMul(uint a, ulong b, out ulong low)
+            => BigMul(b, a, out low);
 
         /// <summary>Produces the full product of two unsigned 64-bit numbers.</summary>
         /// <param name="a">The first number to multiply.</param>
@@ -233,6 +270,28 @@ namespace System
             ulong high = BigMul((ulong)a, (ulong)b, out ulong ulow);
             low = (long)ulow;
             return (long)high - ((a >> 63) & b) - ((b >> 63) & a);
+        }
+
+        /// <summary>Produces the full product of two unsigned 64-bit numbers.</summary>
+        /// <param name="a">The first number to multiply.</param>
+        /// <param name="b">The second number to multiply.</param>
+        /// <returns>The full product of the specified numbers.</returns>
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static UInt128 BigMul(ulong a, ulong b)
+        {
+            ulong high = BigMul(a, b, out ulong low);
+            return new UInt128(high, low);
+        }
+
+        /// <summary>Produces the full product of two 64-bit numbers.</summary>
+        /// <param name="a">The first number to multiply.</param>
+        /// <param name="b">The second number to multiply.</param>
+        /// <returns>The full product of the specified numbers.</returns>
+        public static Int128 BigMul(long a, long b)
+        {
+            long high = BigMul(a, b, out long low);
+            return new Int128((ulong)high, (ulong)low);
         }
 
         public static double BitDecrement(double x)
@@ -1184,19 +1243,14 @@ namespace System
         ///    <para>On ARM64 hardware this may use the <c>FRECPE</c> instruction which performs a single Newton-Raphson iteration.</para>
         ///    <para>On hardware without specialized support, this may just return <c>1.0 / d</c>.</para>
         /// </remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Intrinsic]
         public static double ReciprocalEstimate(double d)
         {
-            // x86 doesn't provide an estimate instruction for double-precision reciprocal
-
-            if (AdvSimd.Arm64.IsSupported)
-            {
-                return AdvSimd.Arm64.ReciprocalEstimateScalar(Vector64.CreateScalar(d)).ToScalar();
-            }
-            else
-            {
-                return 1.0 / d;
-            }
+#if MONO
+            return 1.0 / d;
+#else
+            return ReciprocalEstimate(d);
+#endif
         }
 
         /// <summary>Returns an estimate of the reciprocal square root of a specified number.</summary>
@@ -1206,19 +1260,14 @@ namespace System
         ///    <para>On ARM64 hardware this may use the <c>FRSQRTE</c> instruction which performs a single Newton-Raphson iteration.</para>
         ///    <para>On hardware without specialized support, this may just return <c>1.0 / Sqrt(d)</c>.</para>
         /// </remarks>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [Intrinsic]
         public static double ReciprocalSqrtEstimate(double d)
         {
-            // x86 doesn't provide an estimate instruction for double-precision reciprocal square root
-
-            if (AdvSimd.Arm64.IsSupported)
-            {
-                return AdvSimd.Arm64.ReciprocalSquareRootEstimateScalar(Vector64.CreateScalar(d)).ToScalar();
-            }
-            else
-            {
-                return 1.0 / Sqrt(d);
-            }
+#if MONO || TARGET_RISCV64 || TARGET_LOONGARCH64
+            return 1.0 / Sqrt(d);
+#else
+            return ReciprocalSqrtEstimate(d);
+#endif
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1298,86 +1347,50 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static double Round(double value, MidpointRounding mode)
         {
-            // Inline single-instruction modes
-            if (RuntimeHelpers.IsKnownConstant((int)mode))
+            switch (mode)
             {
-                if (mode == MidpointRounding.ToEven)
-                    return Round(value);
-
-                // For ARM/ARM64 we can lower it down to a single instruction FRINTA
-                // For other platforms we use a fast managed implementation
-                if (mode == MidpointRounding.AwayFromZero)
-                {
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
+                case MidpointRounding.AwayFromZero:
+                    // For ARM/ARM64 we can lower it down to a single instruction FRINTA
                     if (AdvSimd.IsSupported)
-                        return AdvSimd.RoundAwayFromZeroScalar(Vector64.CreateScalar(value)).ToScalar();
+                        return AdvSimd.RoundAwayFromZeroScalar(Vector64.CreateScalarUnsafe(value)).ToScalar();
+                    // For other platforms we use a fast managed implementation
                     // manually fold BitDecrement(0.5)
                     return Truncate(value + CopySign(0.49999999999999994, value));
-                }
-            }
 
-            return Round(value, 0, mode);
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value with an even least significant digit
+                case MidpointRounding.ToEven:
+                    return Round(value);
+                // Directed rounding: Round to the nearest value, toward to zero
+                case MidpointRounding.ToZero:
+                    return Truncate(value);
+                // Directed Rounding: Round down to the next value, toward negative infinity
+                case MidpointRounding.ToNegativeInfinity:
+                    return Floor(value);
+                // Directed rounding: Round up to the next value, toward positive infinity
+                case MidpointRounding.ToPositiveInfinity:
+                    return Ceiling(value);
+
+                default:
+                    ThrowHelper.ThrowArgumentException_InvalidEnumValue(mode);
+                    return default;
+            }
         }
 
-        public static unsafe double Round(double value, int digits, MidpointRounding mode)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static double Round(double value, int digits, MidpointRounding mode)
         {
-            if ((digits < 0) || (digits > maxRoundingDigits))
+            if ((uint)digits > maxRoundingDigits)
             {
-                throw new ArgumentOutOfRangeException(nameof(digits), SR.ArgumentOutOfRange_RoundingDigits);
-            }
-
-            if (mode < MidpointRounding.ToEven || mode > MidpointRounding.ToPositiveInfinity)
-            {
-                throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
+                ThrowHelper.ThrowArgumentOutOfRange_RoundingDigits(nameof(digits));
             }
 
             if (Abs(value) < doubleRoundLimit)
             {
                 double power10 = RoundPower10Double[digits];
-
-                value *= power10;
-
-                switch (mode)
-                {
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value with an even least significant digit
-                    case MidpointRounding.ToEven:
-                    {
-                        value = Round(value);
-                        break;
-                    }
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
-                    case MidpointRounding.AwayFromZero:
-                    {
-                        // manually fold BitDecrement(0.5)
-                        value = Truncate(value + CopySign(0.49999999999999994, value));
-                        break;
-                    }
-                    // Directed rounding: Round to the nearest value, toward to zero
-                    case MidpointRounding.ToZero:
-                    {
-                        value = Truncate(value);
-                        break;
-                    }
-                    // Directed Rounding: Round down to the next value, toward negative infinity
-                    case MidpointRounding.ToNegativeInfinity:
-                    {
-                        value = Floor(value);
-                        break;
-                    }
-                    // Directed rounding: Round up to the next value, toward positive infinity
-                    case MidpointRounding.ToPositiveInfinity:
-                    {
-                        value = Ceiling(value);
-                        break;
-                    }
-                    default:
-                    {
-                        throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
-                    }
-                }
-
-                value /= power10;
+                value = Round(value * power10, mode) / power10;
             }
 
             return value;
@@ -1516,6 +1529,183 @@ namespace System
 
             double u = BitConverter.Int64BitsToDouble(((long)(0x3ff + n) << 52));
             return y * u;
+        }
+
+        //
+        // Helpers, those methods are referenced from the JIT
+        //
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static uint High32Bits(ulong a) => (uint)(a >> 32);
+
+        [StackTraceHidden]
+        internal static long MultiplyChecked(long left, long right)
+        {
+#if DEBUG
+            long result = left * right;
+#endif
+
+            // Remember the sign of the result
+            int sign = (int)(High32Bits((ulong)left) ^ High32Bits((ulong)right));
+
+            // Convert to unsigned multiplication
+            if (left < 0)
+                left = -left;
+            if (right < 0)
+                right = -right;
+
+            // Get the upper 32 bits of the numbers
+            uint val1High = High32Bits((ulong)left);
+            uint val2High = High32Bits((ulong)right);
+
+            ulong valMid;
+
+            if (val1High == 0)
+            {
+                // Compute the 'middle' bits of the long multiplication
+                valMid = BigMul(val2High, (uint)left);
+            }
+            else
+            {
+                if (val2High != 0)
+                    goto Overflow;
+                // Compute the 'middle' bits of the long multiplication
+                valMid = BigMul(val1High, (uint)right);
+            }
+
+            // See if any bits after bit 32 are set
+            if (High32Bits(valMid) != 0)
+                goto Overflow;
+
+            long ret = (long)(BigMul((uint)left, (uint)right) + (valMid << 32));
+
+            // check for overflow
+            if (High32Bits((ulong)ret) < (uint)valMid)
+                goto Overflow;
+
+            if (sign >= 0)
+            {
+                // have we spilled into the sign bit?
+                if (ret < 0)
+                    goto Overflow;
+            }
+            else
+            {
+                ret = -ret;
+                // have we spilled into the sign bit?
+                if (ret > 0)
+                    goto Overflow;
+            }
+
+#if DEBUG
+            Debug.Assert(ret == result, $"Multiply overflow got: {ret}, expected: {result}");
+#endif
+            return ret;
+
+        Overflow:
+            ThrowHelper.ThrowOverflowException();
+            return 0;
+        }
+
+        [StackTraceHidden]
+        internal static ulong MultiplyChecked(ulong left, ulong right)
+        {
+            // Get the upper 32 bits of the numbers
+            uint val1High = High32Bits(left);
+            uint val2High = High32Bits(right);
+
+            ulong valMid;
+
+            if (val1High == 0)
+            {
+                if (val2High == 0)
+                    return (ulong)(uint)left * (uint)right;
+                // Compute the 'middle' bits of the long multiplication
+                valMid = BigMul(val2High, (uint)left);
+            }
+            else
+            {
+                if (val2High != 0)
+                    goto Overflow;
+                // Compute the 'middle' bits of the long multiplication
+                valMid = BigMul(val1High, (uint)right);
+            }
+
+            // See if any bits after bit 32 are set
+            if (High32Bits(valMid) != 0)
+                goto Overflow;
+
+            ulong ret = BigMul((uint)left, (uint)right) + (valMid << 32);
+
+            // check for overflow
+            if (High32Bits(ret) < (uint)valMid)
+                goto Overflow;
+
+            Debug.Assert(ret == left * right, $"Multiply overflow got: {ret}, expected: {left * right}");
+            return ret;
+
+        Overflow:
+            ThrowHelper.ThrowOverflowException();
+            return 0;
+        }
+
+        private const double Int32MaxValueOffset = (double)int.MaxValue + 1;
+        private const double UInt32MaxValueOffset = (double)uint.MaxValue + 1;
+
+        [StackTraceHidden]
+        internal static int ConvertToInt32Checked(double value)
+        {
+            // Note that this expression also works properly for val = NaN case
+            if (value is > -Int32MaxValueOffset - 1 and < Int32MaxValueOffset)
+            {
+                return double.ConvertToIntegerNative<int>(value);
+            }
+
+            ThrowHelper.ThrowOverflowException();
+            return 0;
+        }
+
+        [StackTraceHidden]
+        internal static uint ConvertToUInt32Checked(double value)
+        {
+            // Note that this expression also works properly for val = NaN case
+            if (value is > -1.0 and < UInt32MaxValueOffset)
+            {
+                return double.ConvertToIntegerNative<uint>(value);
+            }
+
+            ThrowHelper.ThrowOverflowException();
+            return 0;
+        }
+
+        [StackTraceHidden]
+        internal static long ConvertToInt64Checked(double value)
+        {
+            const double two63 = Int32MaxValueOffset * UInt32MaxValueOffset;
+
+            // Note that this expression also works properly for val = NaN case
+            // We need to compare with the very next double to two63. 0x402 is epsilon to get us there.
+            if (value is > -two63 - 0x402 and < two63)
+            {
+                return double.ConvertToIntegerNative<long>(value);
+            }
+
+            ThrowHelper.ThrowOverflowException();
+            return 0;
+        }
+
+        [StackTraceHidden]
+        internal static ulong ConvertToUInt64Checked(double value)
+        {
+            const double two64 = UInt32MaxValueOffset * UInt32MaxValueOffset;
+            // Note that this expression also works properly for val = NaN case
+            if (value is > -1.0 and < two64)
+            {
+                return double.ConvertToIntegerNative<ulong>(value);
+            }
+
+            ThrowHelper.ThrowOverflowException();
+            return 0;
         }
     }
 }

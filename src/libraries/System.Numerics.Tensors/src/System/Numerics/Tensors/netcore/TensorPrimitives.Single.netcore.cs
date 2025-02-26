@@ -21,13 +21,9 @@ global using IndexOfMinMagnitudeOperator_Single = System.Numerics.Tensors.Tensor
 global using LogOperator_Single = System.Numerics.Tensors.TensorPrimitives.LogOperator<float>;
 global using Log2Operator_Single = System.Numerics.Tensors.TensorPrimitives.Log2Operator<float>;
 global using MaxOperator_Single = System.Numerics.Tensors.TensorPrimitives.MaxOperator<float>;
-global using MaxPropagateNaNOperator_Single = System.Numerics.Tensors.TensorPrimitives.MaxPropagateNaNOperator<float>;
 global using MaxMagnitudeOperator_Single = System.Numerics.Tensors.TensorPrimitives.MaxMagnitudeOperator<float>;
-global using MaxMagnitudePropagateNaNOperator_Single = System.Numerics.Tensors.TensorPrimitives.MaxMagnitudePropagateNaNOperator<float>;
 global using MinOperator_Single = System.Numerics.Tensors.TensorPrimitives.MinOperator<float>;
-global using MinPropagateNaNOperator_Single = System.Numerics.Tensors.TensorPrimitives.MinPropagateNaNOperator<float>;
 global using MinMagnitudeOperator_Single = System.Numerics.Tensors.TensorPrimitives.MinMagnitudeOperator<float>;
-global using MinMagnitudePropagateNaNOperator_Single = System.Numerics.Tensors.TensorPrimitives.MinMagnitudePropagateNaNOperator<float>;
 global using MultiplyAddOperator_Single = System.Numerics.Tensors.TensorPrimitives.MultiplyAddOperator<float>;
 global using NegateOperator_Single = System.Numerics.Tensors.TensorPrimitives.NegateOperator<float>;
 global using IdentityOperator_Single = System.Numerics.Tensors.TensorPrimitives.IdentityOperator<float>;
@@ -39,7 +35,7 @@ global using TanhOperator_Single = System.Numerics.Tensors.TensorPrimitives.Tanh
 
 namespace System.Numerics.Tensors
 {
-    public static unsafe partial class TensorPrimitives
+    public static partial class TensorPrimitives
     {
         private static void InvokeSpanIntoSpan<TSingleUnaryOperator>(
             ReadOnlySpan<float> x, Span<float> destination)
@@ -54,7 +50,7 @@ namespace System.Numerics.Tensors
         private static void InvokeSpanScalarIntoSpan<TSingleBinaryOperator>(
             ReadOnlySpan<float> x, float y, Span<float> destination)
             where TSingleBinaryOperator : struct, IBinaryOperator<float> =>
-            InvokeSpanScalarIntoSpan<float, IdentityOperator<float>, TSingleBinaryOperator>(x, y, destination);
+            InvokeSpanScalarIntoSpan<float, IdentityOperator_Single, TSingleBinaryOperator>(x, y, destination);
 
         private static unsafe void InvokeSpanScalarIntoSpan<TSingleTransformOperator, TSingleBinaryOperator>(
             ReadOnlySpan<float> x, float y, Span<float> destination)
